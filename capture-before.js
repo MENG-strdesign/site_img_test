@@ -8,16 +8,35 @@ const URL_FILE = 'url.txt';
 
 // 生成保存用的文件名
 function parseUrlInfo(line) {
-  // URL 末尾可能带 BasicAuth信息，格式：url,basicID,basicPW
-  // 例如：https://example.com,username,password
   const parts = line.split(',');
-  const cleanUrl = parts[0].trim();
-  const basicID = parts[1] ? parts[1].trim() : null;
-  const basicPW = parts[2] ? parts[2].trim() : null;
+  const rawUrl = parts[0].trim();
+  let cleanUrl = rawUrl;
+  let basicID = parts[1] ? parts[1].trim() : null;
+  let basicPW = parts[2] ? parts[2].trim() : null;
+
+  // 如果没有用 ,username,password 提供认证信息，就尝试从 query 中解析
+  try {
+    const urlObj = new URL(rawUrl);
+
+    if (!basicID && urlObj.searchParams.has('basicID')) {
+      basicID = urlObj.searchParams.get('basicID');
+    }
+
+    if (!basicPW && urlObj.searchParams.has('basicPW')) {
+      basicPW = urlObj.searchParams.get('basicPW');
+    }
+
+    // 去掉 query 中的 basicID 和 basicPW，生成干净的 cleanUrl
+    urlObj.searchParams.delete('basicID');
+    urlObj.searchParams.delete('basicPW');
+    cleanUrl = urlObj.toString();
+  } catch (e) {
+    console.warn(`⚠️ URL解析に失敗しました: ${rawUrl}`);
+  }
 
   // 生成文件名：用 URL 的 host+path 去除协议及特殊符号
-  const urlObj = new URL(cleanUrl);
-  const filenameBase = (urlObj.hostname + urlObj.pathname)
+  const urlForFilename = new URL(cleanUrl);
+  const filenameBase = (urlForFilename.hostname + urlForFilename.pathname)
     .replace(/[\/\\?&=:]/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '');
@@ -25,6 +44,7 @@ function parseUrlInfo(line) {
 
   return { cleanUrl, basicID, basicPW, filename };
 }
+
 
 async function main() {
   if (!fs.existsSync(URL_FILE)) {
