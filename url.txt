@@ -1,5 +1,7 @@
 #before
 https://www.jmam.co.jp/hrm/dir/dx_certification/
 https://www.jmam.co.jp/hrm/bizcall/special/wbc/
-http://54.248.145.250/hrm/service/dir/knotter/
+
 #after
+http://54.248.145.250/hrm/service/dir/knotter/
+https://www.jmam.co.jp/hrm/bizcall/special/wbc/

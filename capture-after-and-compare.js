@@ -83,16 +83,25 @@ function blendYellow(r, g, b, a, alpha = 0.5) {
 }
 
 function compareImages(beforePath, afterPath, diffPath, comparePath) {
-  const imgBefore = PNG.sync.read(fs.readFileSync(beforePath));
-  const imgAfter = PNG.sync.read(fs.readFileSync(afterPath));
+  let imgBefore = PNG.sync.read(fs.readFileSync(beforePath));
+  let imgAfter = PNG.sync.read(fs.readFileSync(afterPath));
 
-  if (imgBefore.width !== imgAfter.width || imgBefore.height !== imgAfter.height) {
-    throw new Error(`画像サイズが一致しません: imgBefore=${imgBefore.width}x${imgBefore.height} imgAfter=${imgAfter.width}x${imgAfter.height}`);
-  }
+  // 计算统一宽高（取较大）
+  const width = Math.max(imgBefore.width, imgAfter.width);
+  const height = Math.max(imgBefore.height, imgAfter.height);
 
-  const { width, height } = imgBefore;
+  // 将原图扩展到统一尺寸（右下填充透明）
+  const expandTo = (img, targetW, targetH) => {
+    if (img.width === targetW && img.height === targetH) return img;
+    const expanded = new PNG({ width: targetW, height: targetH });
+    PNG.bitblt(img, expanded, 0, 0, img.width, img.height, 0, 0);
+    return expanded;
+  };
 
-  // 生成差分图
+  imgBefore = expandTo(imgBefore, width, height);
+  imgAfter = expandTo(imgAfter, width, height);
+
+  // 创建差分图
   const diff = new PNG({ width, height });
 
   const diffPixels = pixelmatch(
@@ -105,36 +114,49 @@ function compareImages(beforePath, afterPath, diffPath, comparePath) {
       threshold: 0.1,
       includeAA: true,
       alpha: 0.5,
-      diffColor: [255, 255, 0],      // 黄色
-      diffColorAlt: [255, 255, 0],   // 不透明版本
+      diffColor: [255, 255, 0],
+      diffColorAlt: [255, 255, 0],
     }
   );
 
   fs.writeFileSync(diffPath, PNG.sync.write(diff));
 
-  // 生成对比图（左右拼接：左=before，右=after+高亮差异）
+  // 生成对比图（左右拼接）
   const compare = new PNG({ width: width * 2, height });
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = (y * width + x) << 2;
-
       const leftIdx = (y * (width * 2) + x) << 2;
-      const rightIdx = (y * (width * 2) + (x + width)) << 2;
+      const rightIdx = (y * (width * 2) + x + width) << 2;
 
-      // 拷贝左边 before 图像
-      compare.data[leftIdx] = imgBefore.data[idx];
-      compare.data[leftIdx + 1] = imgBefore.data[idx + 1];
-      compare.data[leftIdx + 2] = imgBefore.data[idx + 2];
-      compare.data[leftIdx + 3] = imgBefore.data[idx + 3];
-
-      // 判断是否为差异像素
       const isDiff =
         imgBefore.data[idx] !== imgAfter.data[idx] ||
         imgBefore.data[idx + 1] !== imgAfter.data[idx + 1] ||
         imgBefore.data[idx + 2] !== imgAfter.data[idx + 2] ||
         imgBefore.data[idx + 3] !== imgAfter.data[idx + 3];
 
+      // left side: before
+      if (isDiff) {
+        const blended = blendYellow(
+          imgBefore.data[idx],
+          imgBefore.data[idx + 1],
+          imgBefore.data[idx + 2],
+          imgBefore.data[idx + 3],
+          0.5
+        );
+        compare.data[leftIdx] = blended.r;
+        compare.data[leftIdx + 1] = blended.g;
+        compare.data[leftIdx + 2] = blended.b;
+        compare.data[leftIdx + 3] = blended.a;
+      } else {
+        compare.data[leftIdx] = imgBefore.data[idx];
+        compare.data[leftIdx + 1] = imgBefore.data[idx + 1];
+        compare.data[leftIdx + 2] = imgBefore.data[idx + 2];
+        compare.data[leftIdx + 3] = imgBefore.data[idx + 3];
+      }
+
+      // right side: after
       if (isDiff) {
         const blended = blendYellow(
           imgAfter.data[idx],
@@ -148,7 +170,6 @@ function compareImages(beforePath, afterPath, diffPath, comparePath) {
         compare.data[rightIdx + 2] = blended.b;
         compare.data[rightIdx + 3] = blended.a;
       } else {
-        // 直接复制 after 像素
         compare.data[rightIdx] = imgAfter.data[idx];
         compare.data[rightIdx + 1] = imgAfter.data[idx + 1];
         compare.data[rightIdx + 2] = imgAfter.data[idx + 2];
@@ -158,10 +179,10 @@ function compareImages(beforePath, afterPath, diffPath, comparePath) {
   }
 
   fs.writeFileSync(comparePath, PNG.sync.write(compare));
-
   const percent = (diffPixels / (width * height)) * 100;
   return { diffPixels, percent };
 }
+
 
 
 
