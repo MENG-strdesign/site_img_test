@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const fse = require('fs-extra');
 const { chromium } = require('playwright');
+const  { default: inquirer }  = require('inquirer');
 
 const BEFORE_DIR = 'before';
 const URL_FILE = 'url.txt';
@@ -14,19 +15,14 @@ function parseUrlInfo(line) {
   let basicID = parts[1] ? parts[1].trim() : null;
   let basicPW = parts[2] ? parts[2].trim() : null;
 
-  // 如果没有用 ,username,password 提供认证信息，就尝试从 query 中解析
   try {
     const urlObj = new URL(rawUrl);
-
     if (!basicID && urlObj.searchParams.has('basicID')) {
       basicID = urlObj.searchParams.get('basicID');
     }
-
     if (!basicPW && urlObj.searchParams.has('basicPW')) {
       basicPW = urlObj.searchParams.get('basicPW');
     }
-
-    // 去掉 query 中的 basicID 和 basicPW，生成干净的 cleanUrl
     urlObj.searchParams.delete('basicID');
     urlObj.searchParams.delete('basicPW');
     cleanUrl = urlObj.toString();
@@ -34,17 +30,33 @@ function parseUrlInfo(line) {
     console.warn(`⚠️ URL解析に失敗しました: ${rawUrl}`);
   }
 
-  // 生成文件名：用 URL 的 host+path 去除协议及特殊符号
-  const urlForFilename = new URL(cleanUrl);
-  const filenameBase = (urlForFilename.hostname + urlForFilename.pathname)
-    .replace(/[\/\\?&=:]/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  const filename = filenameBase + '.png';
-
-  return { cleanUrl, basicID, basicPW, filename };
+  try {
+    const urlForFilename = new URL(cleanUrl);
+    const filenameBase = (urlForFilename.hostname + urlForFilename.pathname)
+      .replace(/[\/\\?&=:]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    const filename = filenameBase + '.png';
+    return { cleanUrl, basicID, basicPW, filename };
+  } catch (e) {
+    return { cleanUrl, basicID, basicPW, filename: 'invalid_url.png' };
+  }
 }
 
+async function askUserMode() {
+  const answer = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'mode',
+      message: '📸 比較方法を選んでください：',
+      choices: [
+        { name: '🔁 同じURLでの比較', value: 'same' },
+        { name: '🔀 異なるURLでの比較', value: 'different' }
+      ]
+    }
+  ]);
+  return answer.mode;
+}
 
 async function main() {
   if (!fs.existsSync(URL_FILE)) {
@@ -52,17 +64,34 @@ async function main() {
     process.exit(1);
   }
 
-  const urls = fs.readFileSync(URL_FILE, 'utf-8')
+  const lines = fs.readFileSync(URL_FILE, 'utf-8')
     .split('\n')
-    .map(line => line.trim())
-    .filter(line => line);
+    .map(line => line.trim());
 
+  const mode = await askUserMode(); // 用户选择模式
   fse.ensureDirSync(BEFORE_DIR);
-
+  fse.emptyDirSync(BEFORE_DIR); // ✅ 清空 before 文件夹内容
   const browser = await chromium.launch();
 
-  for (const rawUrl of urls) {
-    const { cleanUrl, basicID, basicPW, filename } = parseUrlInfo(rawUrl);
+
+  let startProcessing = false;
+  let counter = 1;
+
+  for (const line of lines) {
+    if (line === '#before') {
+      startProcessing = true;
+      continue;
+    }
+    if (line === '#after') {
+      break;
+    }
+    if (!startProcessing || !line || line.startsWith('#')) {
+      continue;
+    }
+
+    const { cleanUrl, basicID, basicPW, filename } = parseUrlInfo(line);
+    const prefix = mode === 'different' ? String(counter).padStart(3, '0') + '_' : '';
+    const finalFilename = prefix + filename;
 
     const contextOptions = {
       viewport: { width: 1366, height: 768 }
@@ -76,7 +105,7 @@ async function main() {
 
     try {
       await page.goto(cleanUrl, { waitUntil: 'networkidle', timeout: 20000 });
-      const savePath = path.join(BEFORE_DIR, filename);
+      const savePath = path.join(BEFORE_DIR, finalFilename);
       await page.screenshot({ path: savePath, fullPage: true });
       console.log(`✅ Captured BEFORE: ${cleanUrl} → ${savePath}`);
     } catch (err) {
@@ -85,6 +114,8 @@ async function main() {
       await page.close();
       await context.close();
     }
+
+    counter++;
   }
 
   await browser.close();

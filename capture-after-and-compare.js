@@ -6,7 +6,9 @@ const { default: pixelmatch } = require('pixelmatch');
 const { chromium } = require('playwright');
 const readline = require('readline');
 const { default: open } = require('open');
-
+const { default: inquirer } = require('inquirer');
+let mode;
+let counter = 1;
 const BEFORE_DIR = 'before';
 const AFTER_DIR = 'after';
 const DIFF_DIR = 'diff';
@@ -85,7 +87,7 @@ function compareImages(beforePath, afterPath, diffPath, comparePath) {
   const imgAfter = PNG.sync.read(fs.readFileSync(afterPath));
 
   if (imgBefore.width !== imgAfter.width || imgBefore.height !== imgAfter.height) {
-    throw new Error('画像サイズが一致しません');
+    throw new Error(`画像サイズが一致しません: imgBefore=${imgBefore.width}x${imgBefore.height} imgAfter=${imgAfter.width}x${imgAfter.height}`);
   }
 
   const { width, height } = imgBefore;
@@ -165,6 +167,8 @@ function compareImages(beforePath, afterPath, diffPath, comparePath) {
 
 
 function generateHTMLReport(results) {
+  try {
+
   let rows = '';
   results.forEach(r => {
     let diffStatus = '';
@@ -182,15 +186,21 @@ function generateHTMLReport(results) {
     } else if (r.diffPixels === 0) {
       diffStatus = `<span style="color:green;">一致</span>`;
     } else {
-      diffStatus = `<span style="color:red;">差分あり</span>`;
+      if (r.percent.toFixed(2) == 0) {
+        diffStatus = `<span style="color:green;">一致</span>`;
+      } else if (r.percent.toFixed(2) < 1) {
+        diffStatus = `<span style="color:orange;">軽微な差分あり</span>`;
+      } else {
+        diffStatus = `<span style="color:red;">差分あり</span>`;
+      }
     }
 
     const linksList = [];
-
-    const beforePath = path.join(BEFORE_DIR, r.filename);
-    const afterPath = path.join(AFTER_DIR, r.filename);
-    const diffPath = path.join(DIFF_DIR, r.filename);
-    const comparePath = path.join(COMPARE_DIR, r.filename);
+    // console.log("r.beforeFilename",r.beforeFilename)
+    const beforePath = path.join(BEFORE_DIR, r.beforeFilename);
+    const afterPath = path.join(AFTER_DIR, r.afterFilename);
+    const diffPath = path.join(DIFF_DIR, r.afterFilename);
+    const comparePath = path.join(COMPARE_DIR, r.afterFilename);
 
     if (fs.existsSync(beforePath)) {
       linksList.push(`<a href="${beforePath}" target="_blank">Before</a>`);
@@ -209,7 +219,7 @@ function generateHTMLReport(results) {
     rows += `
 <tr>
   <td>${r.rawUrl}</td>
-  <td>${r.filename}</td>
+  <td>${r.afterFilename}</td>
   <td>${diffPixels}</td>
   <td>${percent}</td>
   <td>${diffStatus}</td>
@@ -248,6 +258,10 @@ ${rows}
 </table>
 </body>
 </html>`;
+    
+  } catch (error) {
+    console.log(error)
+  }
 }
 
 
@@ -265,6 +279,21 @@ function askToOpenReport() {
   });
 }
 
+async function askUserMode() {
+  const answer = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'mode',
+      message: '📸 比較方法を選んでください：',
+      choices: [
+        { name: '🔁 同じURLでの比較', value: 'same' },
+        { name: '🔀 異なるURLでの比較', value: 'different' }
+      ]
+    }
+  ]);
+  return answer.mode;
+}
+
 async function main() {
   if (CLEAN_BEFORE_RUN) {
     cleanDirs();
@@ -274,27 +303,45 @@ async function main() {
     });
   }
 
+  // 替换原有 URL 读取部分
   if (!fs.existsSync(URL_FILE)) {
     console.error(`❌ URLファイルが見つかりません: ${URL_FILE}`);
     process.exit(1);
   }
+  mode = await askUserMode(); // 用户选择模式
 
-  const urls = fs.readFileSync(URL_FILE, 'utf-8')
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line);
+  const rawLines = fs.readFileSync(URL_FILE, 'utf-8').split('\n');
 
-  if (urls.length === 0) {
-    console.log('⚠️ URLが1つもありません。url.txtを確認してください。');
-    process.exit(0);
+  let started = mode === 'same';
+  const urls = [];
+
+  for (const line of rawLines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    if (!started) {
+      if (trimmed.toLowerCase() === '#after') {
+        started = true;
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith('#')) continue;
+
+    urls.push(trimmed);
   }
 
+  if (urls.length === 0) {
+    console.log('⚠️ #AFTER以降にURLが1つもありません。url.txtを確認してください。');
+    process.exit(0);
+  }
   const browser = await chromium.launch();
   const results = [];
 
   for (const url of urls) {
     const { cleanUrl, basicID, basicPW, filename, rawUrl } = parseUrlInfo(url);
-
+    const prefix = mode === 'different' ? String(counter).padStart(3, '0') + '_' : '';
+    const finalFilename = prefix + filename;
     const contextOptions = {
       viewport: { width: 1366, height: 768 }
     };
@@ -305,15 +352,18 @@ async function main() {
     const context = await browser.newContext(contextOptions);
     const page = await context.newPage();
 
-    const afterPath = path.join(AFTER_DIR, filename);
-    const beforePath = path.join(BEFORE_DIR, filename);
-    const diffPath = path.join(DIFF_DIR, filename);
-    const comparePath = path.join(COMPARE_DIR, filename);
+    const afterPath = path.join(AFTER_DIR, finalFilename);
+        // 查找与 filename 前缀三位数字相同的 BEFORE 文件
+    // 取用于比较的前缀（仅在 different 模式下才有前缀）
+    const filePrefix = mode === 'different' ? String(counter).padStart(3, '0') + '_' : '';
+    const beforeFile = fs.readdirSync(BEFORE_DIR).find(name => name.startsWith(filePrefix));
+    const beforePath = mode === 'different' ? path.join(BEFORE_DIR, beforeFile) : path.join(BEFORE_DIR, filename);
+    const diffPath = path.join(DIFF_DIR, finalFilename);
+    const comparePath = path.join(COMPARE_DIR, finalFilename);
 
     try {
       const response = await page.goto(cleanUrl, { waitUntil: 'networkidle', timeout: 20000 });
 
-      // Basic認証失敗の判定
       if (response && response.status() === 401) {
         console.warn(`⚠️ 認証失敗: ${cleanUrl} - ステータス401`);
         results.push({
@@ -336,7 +386,7 @@ async function main() {
       await context.close();
       results.push({
         rawUrl,
-        filename,
+        finalFilename,
         diffPixels: -1,
         percent: 0,
         error: `キャプチャ失敗: ${err.message}`
@@ -345,30 +395,33 @@ async function main() {
     }
 
 
+
+
     let diffPixels = -1;
     let percent = 0;
 
-    if (fs.existsSync(beforePath)) {
+    if (beforePath && fs.existsSync(beforePath)) {
       try {
         const result = compareImages(beforePath, afterPath, diffPath, comparePath);
         diffPixels = result.diffPixels;
         percent = result.percent;
-        console.log(`🧪 比較成功: ${filename} 差分ピクセル=${diffPixels} 割合=${percent.toFixed(2)}%`);
+        console.log(`🧪 比較成功: ${finalFilename} ← ${path.basename(beforePath)} 差分ピクセル=${diffPixels} 割合=${percent.toFixed(2)}%`);
       } catch (err) {
-        console.error(`❌ 比較失敗: ${filename} - ${err.message}`);
-        results.push({ rawUrl, filename, diffPixels: -1, percent: 0, error: `比較失敗: ${err.message}` });
+        console.error(`❌ 比較失敗: ${finalFilename} - ${err.message}`);
+        results.push({ rawUrl, beforeFilename:path.basename(beforePath), afterFilename:finalFilename, diffPixels: -1, percent: 0, error: `比較失敗: ${err.message}` });
         await page.close();
         await context.close();
         continue;
       }
     } else {
-      console.warn(`⚠️ BEFORE画像がありません: ${filename}`);
+      console.warn(`⚠️ 比較対象のBEFORE画像が見つかりません: prefix=${filePrefix}`);
     }
 
-    results.push({ rawUrl, filename, diffPixels, percent });
+    results.push({ rawUrl, beforeFilename:path.basename(beforePath),afterFilename:finalFilename, diffPixels, percent });
 
     await page.close();
     await context.close();
+    counter++;
   }
 
   await browser.close();
@@ -378,23 +431,28 @@ async function main() {
 
   const total = results.length;
   const okCount = results.filter(r => r.diffPixels === 0).length;
-  const diffCount = results.filter(r => r.diffPixels > 0).length;
+  const diffCount = results.filter(r => {
+    return r.diffPixels > 0 && r.percent.toFixed(2) > 0.01
+  }).length;
+  const smallDiffCount = results.filter(r => {
+    return r.diffPixels > 0 && r.percent.toFixed(2) <= 0.01
+  }).length;
   const errorCount = results.filter(r => r.diffPixels < 0 || r.error).length;
-
 
   console.log('\n===== テスト結果 =====');
   console.log(`合計URL数: ${total}`);
   console.log(`差分なし (OK): ${okCount}`);
-  console.log(`差分あり (DIFFERENT): ${diffCount}`);
+  console.log(`軽微な差分あり (DIFFERENT): ${smallDiffCount}`);
+  console.log(`大きな差分あり (DIFFERENT): ${diffCount}`);
   console.log(`比較失敗 (ERROR): ${errorCount}`);
   console.log(`レポートファイル: file://${reportFullPath}`);
   console.log('====================\n');
 
-
   askToOpenReport();
 }
 
+
 main().catch(err => {
-  console.error(`エラー: ${err.message}`);
+  console.error(`エラー: ${err}`);
   process.exit(1);
 });

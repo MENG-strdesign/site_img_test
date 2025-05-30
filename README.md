@@ -36,14 +36,26 @@ project-root/
 
 比較対象の URL を `url.txt` に 1 行ずつ記載してください。
 
-例：
+例：(同じURLで比較する場合)
 
 ```
 https://example.com/page1
 https://example.com/page2
 https://example.com/secure-page?basicID=username&basicPW=password
 ```
+例：(異なるURLで比較する場合)
 
+```
+#before
+https://example.com/page1
+https://example.com/page2
+https://example.com/secure-page?basicID=username&basicPW=password
+
+#after
+https://example2.com/page1
+https://example2.com/page2
+https://example2.com/secure-page?basicID=username&basicPW=password
+```
 ※ Basic認証が必要なページには、クエリパラメータで `basicID` および `basicPW` を指定します。
 
 ---
