@@ -9,6 +9,7 @@ const { default: open } = require('open');
 const { default: inquirer } = require('inquirer');
 let mode;
 let counter = 1;
+let beforeUrls = [];
 const BEFORE_DIR = 'before';
 const AFTER_DIR = 'after';
 const DIFF_DIR = 'diff';
@@ -190,65 +191,66 @@ function compareImages(beforePath, afterPath, diffPath, comparePath) {
 function generateHTMLReport(results) {
   try {
 
-  let rows = '';
-  results.forEach(r => {
-    let diffStatus = '';
-    let diffPixels = r.diffPixels >= 0 ? r.diffPixels : '―';
-    let percent = r.diffPixels >= 0 ? r.percent.toFixed(2) + '%' : '―';
+    let rows = '';
+    results.forEach(r => {
+      let diffStatus = '';
+      let diffPixels = r.diffPixels >= 0 ? r.diffPixels : '―';
+      let percent = r.diffPixels >= 0 ? r.percent.toFixed(2) + '%' : '―';
 
-    if (r.error) {
-      if (r.error.includes('認証失敗')) {
-        diffStatus = `<span style="color:orange;">Basic認証失敗</span>`;
-      } else {
-        diffStatus = `<span style="color:red;">エラー</span>`;
-      }
-    } else if (r.diffPixels === -1) {
-      diffStatus = `<span style="color:orange;">比較なし</span>`;
-    } else if (r.diffPixels === 0) {
-      diffStatus = `<span style="color:green;">一致</span>`;
-    } else {
-      if (r.percent.toFixed(2) == 0) {
+      if (r.error) {
+        if (r.error.includes('認証失敗')) {
+          diffStatus = `<span style="color:orange;">Basic認証失敗</span>`;
+        } else {
+          diffStatus = `<span style="color:red;">エラー</span>`;
+        }
+      } else if (r.diffPixels === -1) {
+        diffStatus = `<span style="color:orange;">比較なし</span>`;
+      } else if (r.diffPixels === 0) {
         diffStatus = `<span style="color:green;">一致</span>`;
-      } else if (r.percent.toFixed(2) < 1) {
-        diffStatus = `<span style="color:orange;">軽微な差分あり</span>`;
       } else {
-        diffStatus = `<span style="color:red;">差分あり</span>`;
+        if (r.percent.toFixed(2) == 0) {
+          diffStatus = `<span style="color:green;">一致</span>`;
+        } else if (r.percent.toFixed(2) < 1) {
+          diffStatus = `<span style="color:orange;">軽微な差分あり</span>`;
+        } else {
+          diffStatus = `<span style="color:red;">差分あり</span>`;
+        }
       }
-    }
 
-    const linksList = [];
-    // console.log("r.beforeFilename",r.beforeFilename)
-    const beforePath = path.join(BEFORE_DIR, r.beforeFilename);
-    const afterPath = path.join(AFTER_DIR, r.afterFilename);
-    const diffPath = path.join(DIFF_DIR, r.afterFilename);
-    const comparePath = path.join(COMPARE_DIR, r.afterFilename);
+      const linksList = [];
+      // console.log("r.beforeFilename",r.beforeFilename)
+      const beforePath = path.join(BEFORE_DIR, r.beforeFilename);
+      const afterPath = path.join(AFTER_DIR, r.afterFilename);
+      const diffPath = path.join(DIFF_DIR, r.afterFilename);
+      const comparePath = path.join(COMPARE_DIR, r.afterFilename);
 
-    if (fs.existsSync(beforePath)) {
-      linksList.push(`<a href="${beforePath}" target="_blank">Before</a>`);
-    }
-    if (fs.existsSync(afterPath)) {
-      linksList.push(`<a href="${afterPath}" target="_blank">After</a>`);
-    }
-    if (fs.existsSync(diffPath)) {
-      linksList.push(`<a href="${diffPath}" target="_blank">Diff</a>`);
-    }
-    if (fs.existsSync(comparePath)) {
-      linksList.push(`<a href="${comparePath}" target="_blank">Compare</a>`);
-    }
+      if (fs.existsSync(beforePath)) {
+        linksList.push(`<a href="${beforePath}" target="_blank">Before</a>`);
+      }
+      if (fs.existsSync(afterPath)) {
+        linksList.push(`<a href="${afterPath}" target="_blank">After</a>`);
+      }
+      if (fs.existsSync(diffPath)) {
+        linksList.push(`<a href="${diffPath}" target="_blank">Diff</a>`);
+      }
+      if (fs.existsSync(comparePath)) {
+        linksList.push(`<a href="${comparePath}" target="_blank">Compare</a>`);
+      }
 
-    const links = linksList.length > 0 ? linksList.join(' | ') : '-';
-    rows += `
+      const links = linksList.length > 0 ? linksList.join(' | ') : '-';
+      rows += `
 <tr>
-  <td>${r.rawUrl}</td>
-  <td>${r.afterFilename}</td>
+  <td>Before: ${r.beforeUrl}<br>After: <span style="">${r.rawUrl}</span></td>
+  <td>Before: ${r.beforeFilename}<br>After: <span style="">${r.afterFilename}</span></td>
   <td>${diffPixels}</td>
   <td>${percent}</td>
   <td>${diffStatus}</td>
   <td>${links}</td>
 </tr>`;
-  });
 
-  return `<!DOCTYPE html>
+    });
+
+    return `<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
@@ -279,7 +281,7 @@ ${rows}
 </table>
 </body>
 </html>`;
-    
+
   } catch (error) {
     console.log(error)
   }
@@ -314,7 +316,6 @@ async function askUserMode() {
   ]);
   return answer.mode;
 }
-
 async function main() {
   if (CLEAN_BEFORE_RUN) {
     cleanDirs();
@@ -335,7 +336,6 @@ async function main() {
 
   let started = mode === 'same';
   const urls = [];
-
   for (const line of rawLines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -343,6 +343,8 @@ async function main() {
     if (!started) {
       if (trimmed.toLowerCase() === '#after') {
         started = true;
+      } else if (trimmed.toLowerCase() !== '#before') {
+        beforeUrls.push(trimmed);
       }
       continue;
     }
@@ -374,7 +376,7 @@ async function main() {
     const page = await context.newPage();
 
     const afterPath = path.join(AFTER_DIR, finalFilename);
-        // 查找与 filename 前缀三位数字相同的 BEFORE 文件
+    // 查找与 filename 前缀三位数字相同的 BEFORE 文件
     // 取用于比较的前缀（仅在 different 模式下才有前缀）
     const filePrefix = mode === 'different' ? String(counter).padStart(3, '0') + '_' : '';
     const beforeFile = fs.readdirSync(BEFORE_DIR).find(name => name.startsWith(filePrefix));
@@ -429,7 +431,7 @@ async function main() {
         console.log(`🧪 比較成功: ${finalFilename} ← ${path.basename(beforePath)} 差分ピクセル=${diffPixels} 割合=${percent.toFixed(2)}%`);
       } catch (err) {
         console.error(`❌ 比較失敗: ${finalFilename} - ${err.message}`);
-        results.push({ rawUrl, beforeFilename:path.basename(beforePath), afterFilename:finalFilename, diffPixels: -1, percent: 0, error: `比較失敗: ${err.message}` });
+        results.push({ rawUrl, beforeFilename: path.basename(beforePath), afterFilename: finalFilename, diffPixels: -1, percent: 0, error: `比較失敗: ${err.message}` });
         await page.close();
         await context.close();
         continue;
@@ -438,7 +440,7 @@ async function main() {
       console.warn(`⚠️ 比較対象のBEFORE画像が見つかりません: prefix=${filePrefix}`);
     }
 
-    results.push({ rawUrl, beforeFilename:path.basename(beforePath),afterFilename:finalFilename, diffPixels, percent });
+    results.push({ rawUrl, beforeUrl: beforeUrls[counter - 1], beforeFilename: path.basename(beforePath), afterFilename: finalFilename, diffPixels, percent });
 
     await page.close();
     await context.close();
