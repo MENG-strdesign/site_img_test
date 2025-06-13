@@ -1,5 +1,5 @@
 #before
-https://www.jacd.jp/
+https://www.jmam.co.jp/hrm/bizcall/special/wbc/
 
 #after
-http://dev.jacd.jp/
+https://www.jmam.co.jp/hrm/service/dir/wbc/
