@@ -195,7 +195,7 @@ function generateHTMLReport(results) {
     results.forEach(r => {
       let diffStatus = '';
       let diffPixels = r.diffPixels >= 0 ? r.diffPixels : '―';
-      let percent = r.diffPixels >= 0 ? r.percent.toFixed(2) + '%' : '―';
+      let percent = r.diffPixels >= 0 ? r.percent.toFixed(3) + '%' : '―';
 
       if (r.error) {
         if (r.error.includes('認証失敗')) {
@@ -206,11 +206,11 @@ function generateHTMLReport(results) {
       } else if (r.diffPixels === -1) {
         diffStatus = `<span style="color:orange;">比較なし</span>`;
       } else if (r.diffPixels === 0) {
-        diffStatus = `<span style="color:green;">一致</span>`;
+        diffStatus = `<span style="color:green;">完全一致</span>`;
       } else {
-        if (r.percent.toFixed(2) == 0) {
+        if (r.percent.toFixed(3) == 0) {
           diffStatus = `<span style="color:green;">一致</span>`;
-        } else if (r.percent.toFixed(2) < 1) {
+        } else if (r.percent.toFixed(3) < 0.01 && r.percent.toFixed(3) > 0.001) {
           diffStatus = `<span style="color:orange;">軽微な差分あり</span>`;
         } else {
           diffStatus = `<span style="color:red;">差分あり</span>`;
@@ -428,7 +428,7 @@ async function main() {
         const result = compareImages(beforePath, afterPath, diffPath, comparePath);
         diffPixels = result.diffPixels;
         percent = result.percent;
-        console.log(`🧪 比較成功: ${finalFilename} ← ${path.basename(beforePath)} 差分ピクセル=${diffPixels} 割合=${percent.toFixed(2)}%`);
+        console.log(`🧪 比較成功: ${finalFilename} ← ${path.basename(beforePath)} 差分ピクセル=${diffPixels} 割合=${percent.toFixed(3)}%`);
       } catch (err) {
         console.error(`❌ 比較失敗: ${finalFilename} - ${err.message}`);
         results.push({ rawUrl, beforeFilename: path.basename(beforePath), afterFilename: finalFilename, diffPixels: -1, percent: 0, error: `比較失敗: ${err.message}` });
@@ -453,12 +453,12 @@ async function main() {
   fs.writeFileSync(REPORT_FILE, html);
 
   const total = results.length;
-  const okCount = results.filter(r => r.diffPixels === 0).length;
+  const okCount = results.filter(r => r.diffPixels === 0 || r.percent.toFixed(3) < 0.001).length;
   const diffCount = results.filter(r => {
-    return r.diffPixels > 0 && r.percent.toFixed(2) > 0.01
+    return r.diffPixels > 0 && r.percent.toFixed(3) > 0.01
   }).length;
   const smallDiffCount = results.filter(r => {
-    return r.diffPixels > 0 && r.percent.toFixed(2) <= 0.01
+    return r.percent.toFixed(3) > 0.001 && r.percent.toFixed(3) <= 0.01
   }).length;
   const errorCount = results.filter(r => r.diffPixels < 0 || r.error).length;
 
