@@ -1,5 +1,5 @@
 #before
-https://www.jmam.co.jp/hrm/dir/web_system.html	
+https://www.jmam.co.jp/hrm/j-xing/	
 
 #after
-https://www.jmam.co.jp/hrm/dir/web-system/
+https://www.jmam.co.jp/hrm/service/dir/j-xing/

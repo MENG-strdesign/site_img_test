@@ -7,6 +7,7 @@ const { chromium } = require('playwright');
 const readline = require('readline');
 const { default: open } = require('open');
 const { default: inquirer } = require('inquirer');
+const pLimit = require('p-limit').default;
 
 let mode;
 let counter = 1;
@@ -21,6 +22,7 @@ const reportFullPath = path.resolve(REPORT_FILE);
 
 // 実行前にディレクトリを空にするかどうか
 const CLEAN_BEFORE_RUN = true;
+const CONCURRENCY = 3; // 并发数，可根据机器性能调整
 
 function cleanDirs() {
   [AFTER_DIR, DIFF_DIR, COMPARE_DIR].forEach(dir => {
@@ -317,6 +319,28 @@ async function askUserMode() {
   ]);
   return answer.mode;
 }
+async function captureWithProgress(page, url, afterPath) {
+  let loadedBytes = 0;
+
+  page.on('response', resp => {
+    const clen = resp.headers()['content-length'];
+    if (clen) {
+      loadedBytes += parseInt(clen, 10);
+      process.stdout.write(`\r読込済み: ${(loadedBytes/1024).toFixed(1)} KB`);
+    }
+  });
+
+  let response = null;
+  try {
+    response = await page.goto(url, { waitUntil: 'networkidle', timeout: 10000 });
+  } catch (err) {
+    console.warn(`\n⚠️ ページの完全な読込を待てませんでした（タイムアウト）。現在の状態でスクリーンショットを保存します。`);
+  }
+  process.stdout.write('\n');
+  await page.screenshot({ path: afterPath, fullPage: true });
+  return response;
+}
+
 async function main() {
   if (CLEAN_BEFORE_RUN) {
     cleanDirs();
@@ -326,21 +350,18 @@ async function main() {
     });
   }
 
-  // 替换原有 URL 读取部分
   if (!fs.existsSync(URL_FILE)) {
     console.error(`❌ URLファイルが見つかりません: ${URL_FILE}`);
     process.exit(1);
   }
-  mode = await askUserMode(); // 用户选择模式
+  mode = await askUserMode();
 
   const rawLines = fs.readFileSync(URL_FILE, 'utf-8').split('\n');
-
   let started = mode === 'same';
   const urls = [];
   for (const line of rawLines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-
     if (!started) {
       if (trimmed.toLowerCase() === '#after') {
         started = true;
@@ -349,9 +370,7 @@ async function main() {
       }
       continue;
     }
-
     if (trimmed.startsWith('#')) continue;
-
     urls.push(trimmed);
   }
 
@@ -361,10 +380,11 @@ async function main() {
   }
   const browser = await chromium.launch();
   const results = [];
+  const limit = pLimit(CONCURRENCY);
 
-  for (const url of urls) {
+  await Promise.all(urls.map((url, idx) => limit(async () => {
     const { cleanUrl, basicID, basicPW, filename, rawUrl } = parseUrlInfo(url);
-    const prefix = mode === 'different' ? String(counter).padStart(3, '0') + '_' : '';
+    const prefix = mode === 'different' ? String(idx + 1).padStart(3, '0') + '_' : '';
     const finalFilename = prefix + filename;
     const contextOptions = {
       viewport: { width: 1366, height: 768 }
@@ -372,58 +392,51 @@ async function main() {
     if (basicID && basicPW) {
       contextOptions.httpCredentials = { username: basicID, password: basicPW };
     }
-
     const context = await browser.newContext(contextOptions);
     const page = await context.newPage();
 
     const afterPath = path.join(AFTER_DIR, finalFilename);
-    // 查找与 filename 前缀三位数字相同的 BEFORE 文件
-    // 取用于比较的前缀（仅在 different 模式下才有前缀）
-    const filePrefix = mode === 'different' ? String(counter).padStart(3, '0') + '_' : '';
+    const filePrefix = mode === 'different' ? String(idx + 1).padStart(3, '0') + '_' : '';
     const beforeFile = fs.readdirSync(BEFORE_DIR).find(name => name.startsWith(filePrefix));
     const beforePath = mode === 'different' ? path.join(BEFORE_DIR, beforeFile) : path.join(BEFORE_DIR, filename);
     const diffPath = path.join(DIFF_DIR, finalFilename);
     const comparePath = path.join(COMPARE_DIR, finalFilename);
 
     try {
-      const response = await page.goto(cleanUrl, { waitUntil: 'networkidle', timeout: 60000 });
+      console.log(`\n[${idx + 1}/${urls.length}] 取得中: ${cleanUrl}`);
+      const response = await captureWithProgress(page, cleanUrl, afterPath);
 
-      if (response && response.status() === 401) {
+      if (response && typeof response.status === 'function' && response.status() === 401) {
         console.warn(`⚠️ 認証失敗: ${cleanUrl} - ステータス401`);
-        results.push({
+        results[idx] = {
           rawUrl,
           filename,
           diffPixels: -1,
           percent: 0,
           error: '認証失敗: ステータス401'
-        });
+        };
         await page.close();
         await context.close();
-        continue;
+        return;
       }
-
-      await page.screenshot({ path: afterPath, fullPage: true });
       console.log(`✅ AFTER画像取得成功: ${cleanUrl} → ${afterPath}`);
     } catch (err) {
       console.error(`❌ キャプチャ失敗: ${cleanUrl} - ${err.message}`);
       await page.close();
       await context.close();
-      results.push({
+      results[idx] = {
         rawUrl,
         finalFilename,
         diffPixels: -1,
         percent: 0,
         error: `キャプチャ失敗: ${err.message}`
-      });
-      continue;
+      };
+      return;
     }
 
-
-
-
+    // 检查 beforePath 是否有效
     let diffPixels = -1;
     let percent = 0;
-
     if (beforePath && fs.existsSync(beforePath)) {
       try {
         const result = compareImages(beforePath, afterPath, diffPath, comparePath);
@@ -432,21 +445,22 @@ async function main() {
         console.log(`🧪 比較成功: ${finalFilename} ← ${path.basename(beforePath)} 差分ピクセル=${diffPixels} 割合=${percent.toFixed(3)}%`);
       } catch (err) {
         console.error(`❌ 比較失敗: ${finalFilename} - ${err.message}`);
-        results.push({ rawUrl, beforeFilename: path.basename(beforePath), afterFilename: finalFilename, diffPixels: -1, percent: 0, error: `比較失敗: ${err.message}` });
+        results[idx] = { rawUrl, beforeFilename: path.basename(beforePath), afterFilename: finalFilename, diffPixels: -1, percent: 0, error: `比較失敗: ${err.message}` };
         await page.close();
         await context.close();
-        continue;
+        return;
       }
     } else {
       console.warn(`⚠️ 比較対象のBEFORE画像が見つかりません: prefix=${filePrefix}`);
+      results[idx] = { rawUrl, beforeFilename: beforePath ? path.basename(beforePath) : '', afterFilename: finalFilename, diffPixels: -1, percent: 0, error: 'BEFORE画像が見つかりません' };
+      await page.close();
+      await context.close();
+      return;
     }
-
-    results.push({ rawUrl, beforeUrl: beforeUrls[counter - 1], beforeFilename: path.basename(beforePath), afterFilename: finalFilename, diffPixels, percent });
-
+    results[idx] = { rawUrl, beforeUrl: beforeUrls[idx], beforeFilename: path.basename(beforePath), afterFilename: finalFilename, diffPixels, percent };
     await page.close();
     await context.close();
-    counter++;
-  }
+  })));
 
   await browser.close();
 
