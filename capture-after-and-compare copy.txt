@@ -7,7 +7,6 @@ const { chromium } = require('playwright');
 const readline = require('readline');
 const { default: open } = require('open');
 const { default: inquirer } = require('inquirer');
-
 let mode;
 let counter = 1;
 let beforeUrls = [];

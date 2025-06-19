@@ -1,5 +1,5 @@
 #before
-https://www.jmam.co.jp/hrm/bizcall/special/wbc/
+https://www.jmam.co.jp/hrm/dir/web_system.html	
 
 #after
-https://www.jmam.co.jp/hrm/service/dir/wbc/
+https://www.jmam.co.jp/hrm/dir/web-system/

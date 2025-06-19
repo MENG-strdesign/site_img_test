@@ -50,8 +50,8 @@ async function askUserMode() {
       name: 'mode',
       message: '📸 比較方法を選んでください：',
       choices: [
-        { name: '🔁 同じURLでの比較', value: 'same' },
-        { name: '🔀 異なるURLでの比較', value: 'different' }
+        { name: '🔀 異なるURLでの比較', value: 'different' },
+        { name: '🔁 同じURLでの比較', value: 'same' }
       ]
     }
   ]);
@@ -104,7 +104,7 @@ async function main() {
     const page = await context.newPage();
 
     try {
-      await page.goto(cleanUrl, { waitUntil: 'networkidle', timeout: 20000 });
+      await page.goto(cleanUrl, { waitUntil: 'networkidle', timeout: 60000 });
       const savePath = path.join(BEFORE_DIR, finalFilename);
       await page.screenshot({ path: savePath, fullPage: true });
       console.log(`✅ Captured BEFORE: ${cleanUrl} → ${savePath}`);
