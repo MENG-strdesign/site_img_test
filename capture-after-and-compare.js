@@ -332,7 +332,7 @@ async function captureWithProgress(page, url, afterPath) {
 
   let response = null;
   try {
-    response = await page.goto(url, { waitUntil: 'networkidle', timeout: 10000 });
+    response = await page.goto(url, { waitUntil: 'networkidle', timeout: 20000 });
   } catch (err) {
     console.warn(`\n⚠️ ページの完全な読込を待てませんでした（タイムアウト）。現在の状態でスクリーンショットを保存します。`);
   }
@@ -419,9 +419,9 @@ async function main() {
         await context.close();
         return;
       }
-      console.log(`✅ AFTER画像取得成功: ${cleanUrl} → ${afterPath}`);
+      console.log(`\n✅ AFTER画像取得成功: ${cleanUrl} → ${afterPath}`);
     } catch (err) {
-      console.error(`❌ キャプチャ失敗: ${cleanUrl} - ${err.message}`);
+      console.error(`\n❌ キャプチャ失敗: ${cleanUrl} - ${err.message}`);
       await page.close();
       await context.close();
       results[idx] = {

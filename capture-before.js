@@ -73,7 +73,7 @@ async function captureWithProgress(page, url, savePath) {
 
   let gotoError = null;
   try {
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 10000 });
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 20000 });
   } catch (err) {
     gotoError = err;
     console.warn(`\n⚠️ ページの完全な読込を待てませんでした（タイムアウト）。現在の状態でスクリーンショットを保存します。`);
