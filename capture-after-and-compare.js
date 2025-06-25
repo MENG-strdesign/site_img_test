@@ -221,7 +221,6 @@ function generateHTMLReport(results) {
       }
 
       const linksList = [];
-      // console.log("r.beforeFilename",r.beforeFilename)
       const beforePath = path.join(BEFORE_DIR, r.beforeFilename);
       const afterPath = path.join(AFTER_DIR, r.afterFilename);
       const diffPath = path.join(DIFF_DIR, r.afterFilename);
@@ -241,9 +240,31 @@ function generateHTMLReport(results) {
       }
 
       const links = linksList.length > 0 ? linksList.join(' | ') : '-';
+
+      // 新增：URL列变为可点击a标签，链接为不含basic认证参数的cleanUrl
+      // r.rawUrl 里可能有basicID/basicPW，r.beforeUrl 也是
+      // 取出r.rawUrl和r.beforeUrl的clean部分
+      let afterUrl = r.rawUrl;
+      let beforeUrl = r.beforeUrl;
+      try {
+        const afterObj = new URL(afterUrl);
+        afterObj.searchParams.delete('basicID');
+        afterObj.searchParams.delete('basicPW');
+        afterUrl = afterObj.toString();
+      } catch {}
+      try {
+        const beforeObj = new URL(beforeUrl);
+        beforeObj.searchParams.delete('basicID');
+        beforeObj.searchParams.delete('basicPW');
+        beforeUrl = beforeObj.toString();
+      } catch {}
+
       rows += `
 <tr>
-  <td>Before: ${r.beforeUrl}<br>After: <span style="">${r.rawUrl}</span></td>
+  <td>
+    Before: <a href="${beforeUrl}" target="_blank">${beforeUrl}</a><br>
+    After: <a href="${afterUrl}" target="_blank">${afterUrl}</a>
+  </td>
   <td>Before: ${r.beforeFilename}<br>After: <span style="">${r.afterFilename}</span></td>
   <td>${diffPixels}</td>
   <td>${percent}</td>
