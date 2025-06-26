@@ -351,9 +351,42 @@ async function captureWithProgress(page, url, afterPath) {
     }
   });
 
+  // 从URL参数中读取WP_USER和WP_PASS，WP_USER非必须
+  let wpUser = null;
+  let wpPass = null;
+  try {
+    const urlObj = new URL(url);
+    if (urlObj.searchParams.has('WP_USER')) {
+      wpUser = urlObj.searchParams.get('WP_USER');
+      urlObj.searchParams.delete('WP_USER');
+    }
+    if (urlObj.searchParams.has('WP_PASS')) {
+      wpPass = urlObj.searchParams.get('WP_PASS');
+      urlObj.searchParams.delete('WP_PASS');
+    }
+    url = urlObj.toString();
+  } catch {}
+
   let response = null;
   try {
-    response = await page.goto(url, { waitUntil: 'networkidle', timeout: 20000 });
+    response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+
+    // 如果有WP_PASS且检测到WordPress登录表单，则自动登录（WP_USER非必须）
+    if (wpPass && await page.$('form#loginform')) {
+      console.log('\n🔑 WordPressログインページを検出、自動ログインします...');
+      if (wpUser) {
+        await page.type('input#user', wpUser, { delay: 50 });
+      }
+      await page.type('input#pass', wpPass, { delay: 50 });
+      await page.click('input#wp-submit');
+      await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 20000 });
+      console.log('✅ ログイン成功');
+      // 登录后等待页面资源加载
+      await page.waitForLoadState('networkidle', { timeout: 20000 });
+    } else {
+      // 普通页面
+      await page.waitForLoadState('networkidle', { timeout: 20000 });
+    }
   } catch (err) {
     console.warn(`\n⚠️ ページの完全な読込を待てませんでした（タイムアウト）。現在の状態でスクリーンショットを保存します。`);
   }

@@ -71,9 +71,73 @@ async function captureWithProgress(page, url, savePath) {
     }
   });
 
+  // 从URL参数中读取WP_USER和WP_PASS，WP_USER非必须
+  let wpUser = null;
+  let wpPass = null;
+  try {
+    const urlObj = new URL(url);
+    if (urlObj.searchParams.has('WP_USER')) {
+      wpUser = urlObj.searchParams.get('WP_USER');
+      urlObj.searchParams.delete('WP_USER');
+    }
+    if (urlObj.searchParams.has('WP_PASS')) {
+      wpPass = urlObj.searchParams.get('WP_PASS');
+      urlObj.searchParams.delete('WP_PASS');
+    }
+    url = urlObj.toString();
+  } catch {}
+
   let gotoError = null;
   try {
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 20000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+
+    // 如果有WP_PASS且检测到WordPress登录表单，则自动登录
+    if (wpPass && await page.$('form#loginform')) {
+      console.log('\n🔑 WordPressログインページを検出、自動ログインします...');
+
+      // 用户名输入框
+      if (wpUser) {
+        if (await page.$('input#user')) {
+          console.log('→ input#user にユーザー名を入力します');
+          await page.type('input#user', wpUser, { delay: 50 });
+        } else if (await page.$('input[name="log"]')) {
+          console.log('→ input[name="log"] にユーザー名を入力します');
+          await page.type('input[name="log"]', wpUser, { delay: 50 });
+        } else {
+          console.log('⚠️ ユーザー名入力欄が見つかりません');
+        }
+      }
+
+      // 密码输入框
+      if (await page.$('input#pass')) {
+        console.log('→ input#pass にパスワードを入力します');
+        await page.type('input#pass', wpPass, { delay: 50 });
+      } else if (await page.$('input[type="password"]')) {
+        console.log('→ input[type="password"] にパスワードを入力します');
+        await page.type('input[type="password"]', wpPass, { delay: 50 });
+      } else {
+        console.log('⚠️ パスワード入力欄が見つかりません');
+      }
+
+      // 登录按钮
+      if (await page.$('input#wp-submit')) {
+        console.log('→ input#wp-submit をクリックします');
+        await page.click('input#wp-submit');
+      } else if (await page.$('input[type="submit"]')) {
+        console.log('→ input[type="submit"] をクリックします');
+        await page.click('input[type="submit"]');
+      } else {
+        console.log('⚠️ ログインボタンが見つかりません');
+      }
+
+      console.log('→ ログイン後の遷移を待機します...');
+      await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 20000 });
+      console.log('✅ ログイン成功');
+      await page.waitForLoadState('networkidle', { timeout: 20000 });
+    } else {
+      // 普通页面
+      await page.waitForLoadState('networkidle', { timeout: 20000 });
+    }
   } catch (err) {
     gotoError = err;
     console.warn(`\n⚠️ ページの完全な読込を待てませんでした（タイムアウト）。現在の状態でスクリーンショットを保存します。`);

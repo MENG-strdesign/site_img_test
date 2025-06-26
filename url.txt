@@ -1,5 +1,5 @@
 #before
-https://www.jmam.co.jp/hrm/j-xing/	
+https://kizuki-or-jp.strde.tokyo/courses/?WP_PASS=strde
 
 #after
-https://www.jmam.co.jp/hrm/service/dir/j-xing/
+https://kizuki.or.jp/courses/
