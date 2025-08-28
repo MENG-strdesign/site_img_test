@@ -46,7 +46,7 @@ function parseUrlInfo(line) {
 }
 
 async function askUserMode() {
-  const answer = await inquirer.prompt([
+  const answers = await inquirer.prompt([
     {
       type: 'list',
       name: 'mode',
@@ -55,9 +55,18 @@ async function askUserMode() {
         { name: '🔀 異なるURLでの比較', value: 'different' },
         { name: '🔁 同じURLでの比較', value: 'same' }
       ]
+    },
+    {
+      type: 'list',
+      name: 'device',
+      message: '📱 デバイスタイプを選んでください：',
+      choices: [
+        { name: '💻 デスクトップ (1920x1080)', value: 'desktop' },
+        { name: '📱 モバイル (390x844)', value: 'mobile' }
+      ]
     }
   ]);
-  return answer.mode;
+  return answers;
 }
 
 async function captureWithProgress(page, url, savePath) {
@@ -159,7 +168,9 @@ async function main() {
     .split('\n')
     .map(line => line.trim());
 
-  const mode = await askUserMode();
+  const userChoice = await askUserMode();
+  const mode = userChoice.mode;
+  const device = userChoice.device;
   fse.ensureDirSync(BEFORE_DIR);
   fse.emptyDirSync(BEFORE_DIR);
 
@@ -183,11 +194,12 @@ async function main() {
 
     const { cleanUrl, basicID, basicPW, filename } = parseUrlInfo(line);
     const prefix = mode === 'different' ? String(counter).padStart(3, '0') + '_' : '';
-    const finalFilename = prefix + filename;
+    const deviceSuffix = device === 'mobile' ? '-sp' : '';
+    const finalFilename = prefix + filename.replace('.png', deviceSuffix + '.png');
     const savePath = path.join(BEFORE_DIR, finalFilename);
 
     const contextOptions = {
-      viewport: { width: 1366, height: 768 }
+      viewport: device === 'mobile' ? { width: 375, height: 667 } : { width: 1920, height: 1080 }
     };
     if (basicID && basicPW) {
       contextOptions.httpCredentials = { username: basicID, password: basicPW };

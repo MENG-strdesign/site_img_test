@@ -10,6 +10,7 @@ const { default: inquirer } = require('inquirer');
 const pLimit = require('p-limit').default;
 
 let mode;
+let device;
 let counter = 1;
 let beforeUrls = [];
 const BEFORE_DIR = 'before';
@@ -327,7 +328,7 @@ function askToOpenReport() {
 }
 
 async function askUserMode() {
-  const answer = await inquirer.prompt([
+  const answers = await inquirer.prompt([
     {
       type: 'list',
       name: 'mode',
@@ -336,9 +337,18 @@ async function askUserMode() {
         { name: '🔀 異なるURLでの比較', value: 'different' },
         { name: '🔁 同じURLでの比較', value: 'same' }
       ]
+    },
+    {
+      type: 'list',
+      name: 'device',
+      message: '📱 デバイスタイプを選んでください：',
+      choices: [
+        { name: '💻 デスクトップ (1920x1080)', value: 'desktop' },
+        { name: '📱 モバイル (390x844)', value: 'mobile' }
+      ]
     }
   ]);
-  return answer.mode;
+  return answers;
 }
 async function captureWithProgress(page, url, afterPath) {
   let loadedBytes = 0;
@@ -408,7 +418,9 @@ async function main() {
     console.error(`❌ URLファイルが見つかりません: ${URL_FILE}`);
     process.exit(1);
   }
-  mode = await askUserMode();
+  const userChoice = await askUserMode();
+  mode = userChoice.mode;
+  device = userChoice.device;
 
   const rawLines = fs.readFileSync(URL_FILE, 'utf-8').split('\n');
   let started = mode === 'same';
@@ -439,9 +451,10 @@ async function main() {
   await Promise.all(urls.map((url, idx) => limit(async () => {
     const { cleanUrl, basicID, basicPW, filename, rawUrl } = parseUrlInfo(url);
     const prefix = mode === 'different' ? String(idx + 1).padStart(3, '0') + '_' : '';
-    const finalFilename = prefix + filename;
+    const deviceSuffix = device === 'mobile' ? '-sp' : '';
+    const finalFilename = prefix + filename.replace('.png', deviceSuffix + '.png');
     const contextOptions = {
-      viewport: { width: 1366, height: 768 }
+      viewport: device === 'mobile' ? { width: 390, height: 844 } : { width: 1920, height: 1080 }
     };
     if (basicID && basicPW) {
       contextOptions.httpCredentials = { username: basicID, password: basicPW };
@@ -451,8 +464,8 @@ async function main() {
 
     const afterPath = path.join(AFTER_DIR, finalFilename);
     const filePrefix = mode === 'different' ? String(idx + 1).padStart(3, '0') + '_' : '';
-    const beforeFile = fs.readdirSync(BEFORE_DIR).find(name => name.startsWith(filePrefix));
-    const beforePath = mode === 'different' ? path.join(BEFORE_DIR, beforeFile) : path.join(BEFORE_DIR, filename);
+    const beforeFile = fs.readdirSync(BEFORE_DIR).find(name => name.startsWith(filePrefix) && name.includes(deviceSuffix));
+    const beforePath = mode === 'different' ? path.join(BEFORE_DIR, beforeFile) : path.join(BEFORE_DIR, filename.replace('.png', deviceSuffix + '.png'));
     const diffPath = path.join(DIFF_DIR, finalFilename);
     const comparePath = path.join(COMPARE_DIR, finalFilename);
 

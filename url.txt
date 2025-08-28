@@ -1,5 +1,5 @@
 #before
-https://kizuki-or-jp.strde.tokyo/courses/?WP_PASS=strde
+http://54.248.145.250/hrm/
 
 #after
-https://kizuki.or.jp/courses/
+https://www.jmam.co.jp/hrm/
